@@ -16,7 +16,7 @@
     }
     body { font-family: 'Inter', sans-serif; background-color: var(--bg-dark); color: #e2e8f0; overflow: hidden; }
     
-    /* Glassmorphism Classes */
+    /* Glassmorphism */
     .glass-panel {
       background: var(--glass);
       backdrop-filter: blur(12px);
@@ -46,6 +46,10 @@
     /* Loading Spinner */
     .loader { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid var(--primary); border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    /* Modal Animation */
+    .modal-enter { animation: modalEnter 0.3s ease-out forwards; }
+    @keyframes modalEnter { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
   </style>
 </head>
 <body class="bg-[url('https://wallpaperaccess.com/full/1567834.jpg')] bg-cover bg-center bg-no-repeat bg-fixed">
@@ -88,13 +92,41 @@
       </form>
 
       <div id="forgotView" class="hidden space-y-4 mt-4 pt-4 border-t border-slate-700">
-        <p class="text-sm text-slate-300 text-center">Informe seu e-mail para receber as instruções.</p>
+        <p class="text-sm text-slate-300 text-center">Informe seu e-mail para receber uma senha temporária.</p>
         <div class="flex gap-2">
           <input type="email" id="recupEmail" class="w-full bg-slate-800/50 border border-slate-700 rounded-lg p-3 text-white text-sm" placeholder="Seu e-mail cadastrado">
           <button onclick="handleRecovery()" id="btnRecuperar" class="bg-slate-700 hover:bg-slate-600 text-white px-4 rounded-lg text-sm font-bold">Enviar</button>
         </div>
         <button onclick="toggleForgot()" class="w-full text-xs text-slate-500 hover:text-slate-300 mt-2">Voltar ao login</button>
       </div>
+    </div>
+  </div>
+
+  <div id="changePasswordScreen" class="relative hidden min-h-screen flex items-center justify-center p-4 z-10">
+    <div class="glass-panel w-full max-w-md p-8 rounded-2xl fade-in">
+      <div class="text-center mb-6">
+        <div class="w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+          <i class="fa-solid fa-key text-2xl text-yellow-500"></i>
+        </div>
+        <h1 class="text-xl font-bold tracking-tight text-white">Redefinição Obrigatória</h1>
+        <p class="text-slate-400 text-sm mt-2">Por segurança, você deve definir uma nova senha pessoal.</p>
+      </div>
+
+      <form id="formChangePass" onsubmit="handleChangePassword(event)" class="space-y-5">
+        <div>
+          <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Nova Senha</label>
+          <input type="password" id="newPass" required class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-blue-500" placeholder="Nova senha">
+        </div>
+        
+        <div>
+          <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Confirmar Senha</label>
+          <input type="password" id="confirmPass" required class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-blue-500" placeholder="Repita a senha">
+        </div>
+
+        <button type="submit" id="btnChange" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg shadow-lg transition-all active:scale-95">
+          ATUALIZAR SENHA
+        </button>
+      </form>
     </div>
   </div>
 
@@ -163,36 +195,63 @@
     </main>
   </div>
 
+  <div id="notificationModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm transition-opacity duration-300">
+    <div class="bg-slate-800 border border-slate-700 w-full max-w-sm rounded-xl p-6 shadow-2xl modal-enter">
+      <div class="text-center">
+        <div id="modalIcon" class="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"></div>
+        <h3 id="modalTitle" class="text-lg font-bold text-white mb-2">Título</h3>
+        <p id="modalMessage" class="text-sm text-slate-300 mb-6">Mensagem aqui</p>
+        <button onclick="closeNotification()" class="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-medium transition-colors">
+          Fechar
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    // --- URL DA API (GOOGLE APPS SCRIPT) ---
+    // --- URL DA API ---
     const API_URL = "https://script.google.com/macros/s/AKfycbzlAFUQeLTCHt4wr_uXnYW37hLQ8cu_KMfLYmnyCDMewW2IkKjnHTAQj_6rsy2bRKPP/exec";
 
     // --- ESTADO GLOBAL ---
     let currentUser = null;
+    let tempEmailForChange = "";
     let currentFolderId = 'root';
     
-    // --- FUNÇÃO GENÉRICA DE REQUISIÇÃO ---
+    // --- API GENÉRICA ---
     async function requestAPI(action, payload = {}) {
-      // Adiciona a ação ao payload
       const body = JSON.stringify({ action, ...payload });
-      
       try {
-        const response = await fetch(API_URL, {
-          method: 'POST',
-          body: body
-          // Nota: O modo 'no-cors' não é usado aqui pois precisamos ler a resposta JSON.
-          // O Apps Script redireciona a resposta, e o fetch segue automaticamente.
-        });
-        
+        const response = await fetch(API_URL, { method: 'POST', body: body });
         if (!response.ok) throw new Error('Erro na rede ou servidor');
         return await response.json();
       } catch (error) {
-        console.error("Erro na API:", error);
         throw error;
       }
     }
 
-    // --- FUNÇÕES DE LOGIN ---
+    // --- NOTIFICAÇÃO ---
+    function showNotification(type, title, message) {
+      const modal = document.getElementById('notificationModal');
+      const iconContainer = document.getElementById('modalIcon');
+      
+      document.getElementById('modalTitle').textContent = title;
+      document.getElementById('modalMessage').textContent = message;
+
+      if (type === 'success') {
+        iconContainer.className = "w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 bg-green-500/20 text-green-500";
+        iconContainer.innerHTML = '<i class="fa-solid fa-check text-xl"></i>';
+      } else {
+        iconContainer.className = "w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 bg-red-500/20 text-red-500";
+        iconContainer.innerHTML = '<i class="fa-solid fa-exclamation text-xl"></i>';
+      }
+      modal.classList.remove('hidden');
+    }
+
+    function closeNotification() {
+      document.getElementById('notificationModal').classList.add('hidden');
+    }
+
+    // --- LOGIN & RECUPERAÇÃO ---
     async function handleLogin(e) {
       e.preventDefault();
       const btn = document.getElementById('btnLogin');
@@ -209,11 +268,48 @@
           currentUser = res.user;
           sessionStorage.setItem('adsaUser', JSON.stringify(currentUser));
           initDashboard();
+        } else if (res.status === 'force_change') {
+          // Redireciona para troca de senha
+          tempEmailForChange = res.user.email;
+          document.getElementById('loginScreen').classList.add('hidden');
+          document.getElementById('changePasswordScreen').classList.remove('hidden');
+          showNotification('error', 'Segurança', res.message);
         } else {
-          alert(res.message);
+          showNotification('error', 'Acesso Negado', res.message || 'Credenciais inválidas.');
         }
       } catch (err) {
-        alert('Erro ao conectar ao servidor. Verifique sua conexão.');
+        showNotification('error', 'Erro de Conexão', 'Não foi possível conectar ao servidor.');
+      } finally {
+        setBtnLoading(btn, false, originalText);
+      }
+    }
+
+    async function handleChangePassword(e) {
+      e.preventDefault();
+      const p1 = document.getElementById('newPass').value;
+      const p2 = document.getElementById('confirmPass').value;
+      const btn = document.getElementById('btnChange');
+      const originalText = btn.innerHTML;
+
+      if (p1 !== p2) return showNotification('error', 'Erro', 'As senhas não coincidem.');
+      if (p1.length < 6) return showNotification('error', 'Erro', 'A senha deve ter no mínimo 6 caracteres.');
+
+      setBtnLoading(btn, true);
+
+      try {
+        const res = await requestAPI('changePassword', { email: tempEmailForChange, newPassword: p1 });
+        
+        if (res.status === 'success') {
+          currentUser = res.user;
+          sessionStorage.setItem('adsaUser', JSON.stringify(currentUser));
+          document.getElementById('changePasswordScreen').classList.add('hidden');
+          initDashboard();
+          showNotification('success', 'Sucesso', 'Senha atualizada e login realizado!');
+        } else {
+          showNotification('error', 'Erro', res.message);
+        }
+      } catch (err) {
+        showNotification('error', 'Erro', 'Falha ao atualizar senha.');
       } finally {
         setBtnLoading(btn, false, originalText);
       }
@@ -227,7 +323,7 @@
     async function handleRecovery() {
       const email = document.getElementById('recupEmail').value;
       const btn = document.getElementById('btnRecuperar');
-      if(!email) return alert('Digite o e-mail');
+      if(!email) return showNotification('error', 'Atenção', 'Digite o e-mail cadastrado.');
       
       const originalText = btn.innerHTML;
       btn.innerText = '...';
@@ -235,10 +331,15 @@
 
       try {
         const res = await requestAPI('enviarEmailRecuperacao', { email });
-        alert(res.message);
-        toggleForgot();
+        
+        if(res.status === 'success') {
+          showNotification('success', 'E-mail Enviado', res.message);
+          toggleForgot();
+        } else {
+          showNotification('error', 'Falha', res.message);
+        }
       } catch (err) {
-        alert("Erro ao solicitar recuperação.");
+        showNotification('error', 'Erro', 'Não foi possível solicitar a recuperação.');
       } finally {
         btn.innerHTML = originalText;
         btn.disabled = false;
@@ -315,7 +416,6 @@
         document.getElementById('breadcrumb').innerHTML = breadHtml;
       }
 
-      // Render Folders
       let html = '';
       
       if (data.folders.length === 0 && data.files.length === 0) {
@@ -325,7 +425,6 @@
                 </div>`;
       }
 
-      // Folders
       data.folders.forEach(f => {
         html += `
           <div onclick="loadFolder('${f.id}')" class="glass-panel p-4 rounded-xl cursor-pointer hover-glass flex flex-col items-center justify-center text-center gap-3 h-32 transition-all group">
@@ -335,7 +434,6 @@
         `;
       });
 
-      // Files
       data.files.forEach(f => {
         let colorClass = 'text-slate-400';
         if (f.icon.includes('excel')) colorClass = 'text-emerald-500';
@@ -354,7 +452,6 @@
       content.innerHTML = html;
     }
 
-    // Auto-login check
     window.onload = () => {
       const savedUser = sessionStorage.getItem('adsaUser');
       if(savedUser) {
@@ -364,4 +461,4 @@
     }
   </script>
 </body>
-</html>  
+</html>
